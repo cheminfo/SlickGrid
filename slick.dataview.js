@@ -49,6 +49,8 @@
     var compiledFilterWithCaching;
     var filterCache = [];
 
+    var module = null;  // The visualizer model
+
     // grouping
     var groupingInfoDefaults = {
       getter: null,
@@ -60,8 +62,7 @@
       aggregateCollapsed: false,
       aggregateChildGroups: false,
       collapsed: false,
-      displayTotalsRow: true,
-      lazyTotalsCalculation: false
+      displayTotalsRow: true
     };
     var groupingInfos = [];
     var groups = [];
@@ -79,6 +80,9 @@
 
     options = $.extend(true, {}, defaults, options);
 
+    function setModule(m) {
+      module = m;
+    }
 
     function beginUpdate() {
       suspend = true;
@@ -170,6 +174,22 @@
       refresh();
     }
 
+    function sortBy(comparer, ascending) {
+      sortAsc = ascending;
+      sortComparer = comparer;
+      fastSortField = null;
+      if (ascending === false) {
+        items.reverse();
+      }
+      items = _.sortBy(items, comparer);
+      if (ascending === false) {
+        items.reverse();
+      }
+      idxById = {};
+      updateIdxById();
+      refresh();
+    }
+
     /***
      * Provides a workaround for the extremely slow sorting in IE.
      * Does a [lexicographic] sort on a give column by temporarily overriding Object.prototype.toString
@@ -227,7 +247,7 @@
       groups = [];
       toggledGroupsByLevel = [];
       groupingInfo = groupingInfo || [];
-      groupingInfos = (groupingInfo instanceof Array) ? groupingInfo : [groupingInfo];
+      groupingInfos = Array.isArray(groupingInfo) ? groupingInfo : [groupingInfo];
 
       for (var i = 0; i < groupingInfos.length; i++) {
         var gi = groupingInfos[i] = $.extend(true, {}, groupingInfoDefaults, groupingInfos[i]);
@@ -305,7 +325,7 @@
     function mapIdsToRows(idArray) {
       var rows = [];
       ensureRowsByIdCache();
-      for (var i = 0, l = idArray.length; i < l; i++) {
+      for (var i = 0; i < idArray.length; i++) {
         var row = rowsById[idArray[i]];
         if (row != null) {
           rows[rows.length] = row;
@@ -316,7 +336,7 @@
 
     function mapRowsToIds(rowArray) {
       var ids = [];
-      for (var i = 0, l = rowArray.length; i < l; i++) {
+      for (var i = 0; i < rowArray.length; i++) {
         if (rowArray[i] < rows.length) {
           ids[ids.length] = rows[rowArray[i]][idProperty];
         }
@@ -364,22 +384,7 @@
     }
 
     function getItem(i) {
-      var item = rows[i];
-
-      // if this is a group row, make sure totals are calculated and update the title
-      if (item && item.__group && item.totals && !item.totals.initialized) {
-        var gi = groupingInfos[item.level];
-        if (!gi.displayTotalsRow) {
-          calculateTotals(item.totals);
-          item.title = gi.formatter ? gi.formatter(item) : item.value;
-        }
-      }
-      // if this is a totals row, make sure it's calculated
-      else if (item && item.__groupTotals && !item.initialized) {
-        calculateTotals(item);
-      }
-
-      return item;
+      return rows[i];
     }
 
     function getItemMetadata(i) {
@@ -437,7 +442,7 @@
      * @param varArgs Either a Slick.Group's "groupingKey" property, or a
      *     variable argument list of grouping values denoting a unique path to the row.  For
      *     example, calling collapseGroup('high', '10%') will collapse the '10%' subgroup of
-     *     the 'high' group.
+     *     the 'high' setGrouping.
      */
     function collapseGroup(varArgs) {
       var args = Array.prototype.slice.call(arguments);
@@ -453,7 +458,7 @@
      * @param varArgs Either a Slick.Group's "groupingKey" property, or a
      *     variable argument list of grouping values denoting a unique path to the row.  For
      *     example, calling expandGroup('high', '10%') will expand the '10%' subgroup of
-     *     the 'high' group.
+     *     the 'high' setGrouping.
      */
     function expandGroup(varArgs) {
       var args = Array.prototype.slice.call(arguments);
@@ -473,7 +478,7 @@
       var group;
       var val;
       var groups = [];
-      var groupsByVal = {};
+      var groupsByVal = [];
       var r;
       var level = parentGroup ? parentGroup.level + 1 : 0;
       var gi = groupingInfos[level];
@@ -512,57 +517,34 @@
           group = groups[i];
           group.groups = extractGroups(group.rows, group);
         }
-      }      
+      }
 
       groups.sort(groupingInfos[level].comparer);
 
       return groups;
     }
 
-    function calculateTotals(totals) {
-      var group = totals.group;
+    // TODO:  lazy totals calculation
+    function calculateGroupTotals(group) {
+      // TODO:  try moving iterating over groups into compiled accumulator
       var gi = groupingInfos[group.level];
       var isLeafLevel = (group.level == groupingInfos.length);
+      var totals = new Slick.GroupTotals();
       var agg, idx = gi.aggregators.length;
-
-      if (!isLeafLevel && gi.aggregateChildGroups) {
-        // make sure all the subgroups are calculated
-        var i = group.groups.length;
-        while (i--) {
-          if (!group.groups[i].initialized) {
-            calculateTotals(group.groups[i]);
-          }
-        }
-      }
-
       while (idx--) {
         agg = gi.aggregators[idx];
         agg.init();
-        if (!isLeafLevel && gi.aggregateChildGroups) {
-          gi.compiledAccumulators[idx].call(agg, group.groups);
-        } else {
-          gi.compiledAccumulators[idx].call(agg, group.rows);
-        }
+        gi.compiledAccumulators[idx].call(agg,
+            (!isLeafLevel && gi.aggregateChildGroups) ? group.groups : group.rows);
         agg.storeResult(totals);
       }
-      totals.initialized = true;
-    }
-
-    function addGroupTotals(group) {
-      var gi = groupingInfos[group.level];
-      var totals = new Slick.GroupTotals();
       totals.group = group;
       group.totals = totals;
-      if (!gi.lazyTotalsCalculation) {
-        calculateTotals(totals);
-      }
     }
 
-    function addTotals(groups, level) {
+    function calculateTotals(groups, level) {
       level = level || 0;
       var gi = groupingInfos[level];
-      var groupCollapsed = gi.collapsed;
-      var toggledGroups = toggledGroupsByLevel[level];      
       var idx = groups.length, g;
       while (idx--) {
         g = groups[idx];
@@ -571,20 +553,38 @@
           continue;
         }
 
-        // Do a depth-first aggregation so that parent group aggregators can access subgroup totals.
+        // Do a depth-first aggregation so that parent setGrouping aggregators can access subgroup totals.
         if (g.groups) {
-          addTotals(g.groups, level + 1);
+          calculateTotals(g.groups, level + 1);
         }
 
         if (gi.aggregators.length && (
             gi.aggregateEmpty || g.rows.length || (g.groups && g.groups.length))) {
-          addGroupTotals(g);
+          calculateGroupTotals(g);
         }
+      }
+    }
 
+    function finalizeGroups(groups, level) {
+      level = level || 0;
+      var gi = groupingInfos[level];
+      var groupCollapsed = gi.collapsed;
+      var toggledGroups = toggledGroupsByLevel[level];
+      var idx = groups.length, g;
+      while (idx--) {
+        g = groups[idx];
         g.collapsed = groupCollapsed ^ toggledGroups[g.groupingKey];
         g.title = gi.formatter ? gi.formatter(g) : g.value;
+
+        if (g.groups) {
+          finalizeGroups(g.groups, level + 1);
+          // Let the non-leaf setGrouping rows get garbage-collected.
+          // They may have been used by aggregates that go over all of the descendants,
+          // but at this point they are no longer needed.
+          g.rows = [];
+        }
       }
-    } 
+    }
 
     function flattenGroupedRows(groups, level) {
       level = level || 0;
@@ -622,8 +622,8 @@
       var fn = new Function(
           "_items",
           "for (var " + accumulatorInfo.params[0] + ", _i=0, _il=_items.length; _i<_il; _i++) {" +
-              accumulatorInfo.params[0] + " = _items[_i]; " +
-              accumulatorInfo.body +
+          accumulatorInfo.params[0] + " = _items[_i]; " +
+          accumulatorInfo.body +
           "}"
       );
       fn.displayName = fn.name = "compiledAccumulatorLoop";
@@ -784,13 +784,13 @@
               item.__group !== r.__group ||
               item.__group && !item.equals(r))
               || (eitherIsNonData &&
-              // no good way to compare totals since they are arbitrary DTOs
-              // deep object comparison is pretty expensive
-              // always considering them 'dirty' seems easier for the time being
+                // no good way to compare totals since they are arbitrary DTOs
+                // deep object comparison is pretty expensive
+                // always considering them 'dirty' seems easier for the time being
               (item.__groupTotals || r.__groupTotals))
               || item[idProperty] != r[idProperty]
               || (updated && updated[item[idProperty]])
-              ) {
+          ) {
             diff[diff.length] = i;
           }
         }
@@ -814,7 +814,8 @@
       if (groupingInfos.length) {
         groups = extractGroups(newRows);
         if (groups.length) {
-          addTotals(groups);
+          calculateTotals(groups);
+          finalizeGroups(groups);
           newRows = flattenGroupedRows(groups);
         }
       }
@@ -858,50 +859,17 @@
       }
     }
 
-    /***
-     * Wires the grid and the DataView together to keep row selection tied to item ids.
-     * This is useful since, without it, the grid only knows about rows, so if the items
-     * move around, the same rows stay selected instead of the selection moving along
-     * with the items.
-     *
-     * NOTE:  This doesn't work with cell selection model.
-     *
-     * @param grid {Slick.Grid} The grid to sync selection with.
-     * @param preserveHidden {Boolean} Whether to keep selected items that go out of the
-     *     view due to them getting filtered out.
-     * @param preserveHiddenOnSelectionChange {Boolean} Whether to keep selected items
-     *     that are currently out of the view (see preserveHidden) as selected when selection
-     *     changes.
-     * @return {Slick.Event} An event that notifies when an internal list of selected row ids
-     *     changes.  This is useful since, in combination with the above two options, it allows
-     *     access to the full list selected row ids, and not just the ones visible to the grid.
-     * @method syncGridSelection
-     */
-    function syncGridSelection(grid, preserveHidden, preserveHiddenOnSelectionChange) {
+    function syncGridSelection(grid, preserveHidden) {
       var self = this;
+      var selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());;
       var inHandler;
-      var selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
-      var onSelectedRowIdsChanged = new Slick.Event();
-
-      function setSelectedRowIds(rowIds) {
-        if (selectedRowIds.join(",") == rowIds.join(",")) {
-          return;
-        }
-
-        selectedRowIds = rowIds;
-
-        onSelectedRowIdsChanged.notify({
-          "grid": grid,
-          "ids": selectedRowIds
-        }, new Slick.EventData(), self);
-      }
 
       function update() {
         if (selectedRowIds.length > 0) {
           inHandler = true;
           var selectedRows = self.mapIdsToRows(selectedRowIds);
           if (!preserveHidden) {
-            setSelectedRowIds(self.mapRowsToIds(selectedRows));       
+            selectedRowIds = self.mapRowsToIds(selectedRows);
           }
           grid.setSelectedRows(selectedRows);
           inHandler = false;
@@ -910,22 +878,12 @@
 
       grid.onSelectedRowsChanged.subscribe(function(e, args) {
         if (inHandler) { return; }
-        var newSelectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
-        if (!preserveHiddenOnSelectionChange || !grid.getOptions().multiSelect) {
-          setSelectedRowIds(newSelectedRowIds);
-        } else {
-          // keep the ones that are hidden
-          var existing = $.grep(selectedRowIds, function(id) { return self.getRowById(id) === undefined; });
-          // add the newly selected ones
-          setSelectedRowIds(existing.concat(newSelectedRowIds));
-        }
+        selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
       });
 
       this.onRowsChanged.subscribe(update);
 
       this.onRowCountChanged.subscribe(update);
-
-      return onSelectedRowIdsChanged;
     }
 
     function syncGridCellCssStyles(grid, key) {
@@ -975,6 +933,7 @@
 
     $.extend(this, {
       // methods
+      "setModule": setModule,
       "beginUpdate": beginUpdate,
       "endUpdate": endUpdate,
       "setPagingOptions": setPagingOptions,
@@ -983,6 +942,7 @@
       "setItems": setItems,
       "setFilter": setFilter,
       "sort": sort,
+      "sortBy": sortBy,
       "fastSort": fastSort,
       "reSort": reSort,
       "setGrouping": setGrouping,

@@ -33,9 +33,7 @@
       toggleCssClass: "slick-group-toggle",
       toggleExpandedCssClass: "expanded",
       toggleCollapsedCssClass: "collapsed",
-      enableExpandCollapse: true,
-      groupFormatter: defaultGroupCellFormatter,
-      totalsFormatter: defaultTotalsCellFormatter
+      enableExpandCollapse: true
     };
 
     options = $.extend(true, {}, _defaults, options);
@@ -53,7 +51,7 @@
           "' style='margin-left:" + indentation +"'>" +
           "</span>" +
           "<span class='" + options.groupTitleCssClass + "' level='" + item.level + "'>" +
-            item.title +
+          item.title +
           "</span>";
     }
 
@@ -76,19 +74,19 @@
       }
     }
 
+    var onGroupExpanded = new Slick.Event();
+    var onGroupCollapsed = new Slick.Event();
     function handleGridClick(e, args) {
+      var self = this;
       var item = this.getDataItem(args.row);
       if (item && item instanceof Slick.Group && $(e.target).hasClass(options.toggleCssClass)) {
-        var range = _grid.getRenderedRange();
-        this.getData().setRefreshHints({
-          ignoreDiffsBefore: range.top,
-          ignoreDiffsAfter: range.bottom
-        });
-
+        args.item = item;
         if (item.collapsed) {
           this.getData().expandGroup(item.groupingKey);
+          onGroupExpanded.notify(args, e, self);
         } else {
           this.getData().collapseGroup(item.groupingKey);
+          onGroupCollapsed.notify(args, e, self);
         }
 
         e.stopImmediatePropagation();
@@ -98,21 +96,19 @@
 
     // TODO:  add -/+ handling
     function handleGridKeyDown(e, args) {
+      var self = this;
       if (options.enableExpandCollapse && (e.which == $.ui.keyCode.SPACE)) {
         var activeCell = this.getActiveCell();
         if (activeCell) {
           var item = this.getDataItem(activeCell.row);
           if (item && item instanceof Slick.Group) {
-            var range = _grid.getRenderedRange();
-            this.getData().setRefreshHints({
-              ignoreDiffsBefore: range.top,
-              ignoreDiffsAfter: range.bottom
-            });
-
+            args.item = item;
             if (item.collapsed) {
               this.getData().expandGroup(item.groupingKey);
+              onGroupExpanded.notify(args, e, self);
             } else {
               this.getData().collapseGroup(item.groupingKey);
+              onGroupCollapsed.notify(args, e, self);
             }
 
             e.stopImmediatePropagation();
@@ -130,7 +126,7 @@
         columns: {
           0: {
             colspan: "*",
-            formatter: options.groupFormatter,
+            formatter: defaultGroupCellFormatter,
             editor: null
           }
         }
@@ -142,7 +138,7 @@
         selectable: false,
         focusable: options.totalsFocusable,
         cssClasses: options.totalsCssClass,
-        formatter: options.totalsFormatter,
+        formatter: defaultTotalsCellFormatter,
         editor: null
       };
     }
@@ -152,7 +148,9 @@
       "init": init,
       "destroy": destroy,
       "getGroupRowMetadata": getGroupRowMetadata,
-      "getTotalsRowMetadata": getTotalsRowMetadata
+      "getTotalsRowMetadata": getTotalsRowMetadata,
+      "onGroupExpanded": onGroupExpanded,
+      "onGroupCollapsed": onGroupCollapsed
     };
   }
 })(jQuery);
