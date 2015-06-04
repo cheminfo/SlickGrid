@@ -83,7 +83,7 @@
             newArgs.commitChanges = noop;
             newArgs.cancelChanges = noop;
 
-            editors[idx] = new (columns[idx].editor)(newArgs);
+            editors.push(new (columns[idx].editor)(newArgs));
           }
         }
       }
