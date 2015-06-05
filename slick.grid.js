@@ -3118,7 +3118,7 @@ if (typeof Slick === "undefined") {
                 item: item
               });
             } else {
-              var newItem = currentEditor.applyValue(null, currentEditor.serializeValue());
+              var newItem = currentEditor.applyValue({}, currentEditor.serializeValue());
               makeActiveCellNormal();
               trigger(self.onAddNewRow, {item: newItem, column: column});
             }
