@@ -2538,9 +2538,16 @@ if (typeof Slick === "undefined") {
       // cancel pending async call if there is one
       clearTimeout(h_editorLoader);
 
-      if (!isCellPotentiallyEditable(activeRow, activeCell)) {
+      // In case of a custom editor, we don't care if the cell is editable
+      if (!isCellPotentiallyEditable(activeRow, activeCell) && !editor) {
         return;
       }
+
+      // With a custom editor we suppose we are editing the line
+      // We continue only if at least one column has an editor
+      if(editor && !columns.some(function(v){
+            return v.editor
+          })) return;
 
       var columnDef = columns[activeCell];
       var item = getDataItem(activeRow);
