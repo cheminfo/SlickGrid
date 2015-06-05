@@ -2585,6 +2585,7 @@ if (typeof Slick === "undefined") {
       if (currentEditor.position) {
         handleActiveCellPositionChange();
       }
+      return true;
     }
 
     function commitEditAndSetFocus(navigation) {
