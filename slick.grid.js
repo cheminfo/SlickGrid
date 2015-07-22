@@ -177,6 +177,14 @@ if (typeof Slick === "undefined") {
     var counter_rows_rendered = 0;
     var counter_rows_removed = 0;
 
+    var tabbingDirections = {
+      "up": -1,
+      "down": 1,
+      "left": -1,
+      "right": 1,
+      "prev": -1,
+      "next": 1
+    };
 
     //////////////////////////////////////////////////////////////////////////////////////////////
     // Initialization
@@ -2593,8 +2601,8 @@ if (typeof Slick === "undefined") {
       // if so, do not steal the focus from the editor
       if (getEditorLock().commitCurrentEdit()) {
         setFocus();
-        if (options.autoEdit) {
-          navigation = navigation || 'down';
+        navigation = navigation || 'down';
+        if (options.autoEdit && tabbingDirections[navigation]) {
           navigate(navigation);
         }
       }
@@ -2957,14 +2965,6 @@ if (typeof Slick === "undefined") {
       }
       setFocus();
 
-      var tabbingDirections = {
-        "up": -1,
-        "down": 1,
-        "left": -1,
-        "right": 1,
-        "prev": -1,
-        "next": 1
-      };
       tabbingDirection = tabbingDirections[dir];
 
       var stepFunctions = {
