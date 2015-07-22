@@ -2588,12 +2588,12 @@ if (typeof Slick === "undefined") {
       return true;
     }
 
-    function commitEditAndSetFocus(navigation) {
+    function commitEditAndSetFocus(navigation, noNavigation) {
       // if the commit fails, it would do so due to a validation error
       // if so, do not steal the focus from the editor
       if (getEditorLock().commitCurrentEdit()) {
         setFocus();
-        if (options.autoEdit) {
+        if (options.autoEdit && !noNavigation) {
           navigation = navigation || 'down';
           navigate(navigation);
         }
