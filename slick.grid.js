@@ -1599,6 +1599,7 @@ if (typeof Slick === "undefined") {
       updateRowCount();
       handleScroll();
       render();
+      trigger(self.onViewportChanged, {});
     }
 
     function updateRowCount() {
