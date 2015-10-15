@@ -1937,6 +1937,7 @@ if (typeof Slick === "undefined") {
 
       // render missing rows
       renderRows(rendered);
+      trigger(self.onRenderCompleted, {});
 
       postProcessFromRow = visible.top;
       postProcessToRow = Math.min(options.enableAddRow ? getDataLength() : getDataLength() - 1, visible.bottom);
@@ -3244,6 +3245,7 @@ if (typeof Slick === "undefined") {
       "onDragEnd": new Slick.Event(),
       "onSelectedRowsChanged": new Slick.Event(),
       "onCellCssStylesChanged": new Slick.Event(),
+      "onRenderCompleted": new Slick.Event(),
 
       // Methods
       "registerPlugin": registerPlugin,
