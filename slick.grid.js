@@ -3053,7 +3053,7 @@ if (typeof Slick === "undefined") {
       return columns[cell].selectable;
     }
 
-    function gotoCell(row, cell, forceEdit) {
+    function gotoCell(row, cell, forceEdit, noFocus) {
       if (!initialized) { return; }
       if (!canCellBeActive(row, cell)) {
         return;
@@ -3071,7 +3071,7 @@ if (typeof Slick === "undefined") {
       setActiveCellInternal(newCell, forceEdit || (row === getDataLength()) || options.autoEdit);
 
       // if no editor was created, set the focus back on the grid
-      if (!currentEditor) {
+      if (!currentEditor && !noFocus) {
         setFocus();
       }
     }
