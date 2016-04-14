@@ -898,8 +898,6 @@
       this.onRowsChanged.subscribe(update);
 
       this.onRowCountChanged.subscribe(update);
-
-      return onSelectedRowIdsChanged;
     }
 
     function syncGridCellCssStyles(grid, key) {
