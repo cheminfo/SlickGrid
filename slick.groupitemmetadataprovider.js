@@ -51,7 +51,7 @@
           "' style='margin-left:" + indentation +"'>" +
           "</span>" +
           "<span class='" + options.groupTitleCssClass + "' level='" + item.level + "'>" +
-          item.title +
+            item.title +
           "</span>";
     }
 
