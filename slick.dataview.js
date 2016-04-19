@@ -162,14 +162,23 @@
       return {pageSize: pagesize, pageNum: pagenum, totalRows: totalRows, totalPages: totalPages, dataView: self};
     }
 
-    function sort(comparer, ascending) {
-      sortAsc = ascending;
-      sortComparer = comparer;
-      fastSortField = null;
-      if (ascending === false) {
-        items.reverse();
+    function sort(comparer, ascending, map) {
+      if(map) {
+        var d = new Array(items.length);
+        for(var i=0; i<items.length; i++) {
+          d[i] = [map(items[i]), items[i]];
+        }
+        timsort.sort(d, function(a,b) {
+          return comparer(a[0], b[0]);
+        });
+
+        for(var i=0; i<d.length; i++) {
+          items[i] = d[i][1];
+        }
+      } else {
+        timsort.sort(items, comparer);
       }
-      timsort.sort(items, comparer);
+
       if (ascending === false) {
         items.reverse();
       }
