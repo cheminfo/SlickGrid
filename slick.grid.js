@@ -1053,6 +1053,7 @@ if (typeof Slick === "undefined") {
       addCSSRule(sheet,"." + uid + " .slick-headerrow-columns", "height:" + options.headerRowHeight + "px;",index++);
       addCSSRule(sheet, "." + uid + " .slick-footerrow-columns", "height:" + options.footerRowHeight + "px;",index++);
       addCSSRule(sheet,"." + uid + " .slick-cell", "height:" + rowHeight + "px;",index++);
+      addCSSRule(sheet,"." + uid + " .slick-row", "line-height:" + options.rowHeight + "px;" ,index++);
       addCSSRule(sheet,"." + uid + " .slick-row", "height:" + options.rowHeight + "px;",index++);
 
       for (var i = 0; i < columns.length; i++) {
