@@ -127,7 +127,8 @@
       }
     }
 
-    function getItems() {
+    function getItems(filtered) {
+      if(filtered && filteredItems) return filteredItems;
       return items;
     }
 
