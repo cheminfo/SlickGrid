@@ -3479,9 +3479,11 @@ if (typeof Slick === "undefined") {
                 serializedValue: currentEditor.serializeValue(),
                 prevSerializedValue: serializedEditorValue,
                 execute: function () {
+                  var prev = this.editor.defaultValue;
                   this.editor.applyValue(item, this.serializedValue);
                   updateRow(this.row);
                   trigger(self.onCellChange, {
+                    previous: prev,
                     row: activeRow,
                     cell: activeCell,
                     item: item,
