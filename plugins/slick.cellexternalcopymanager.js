@@ -47,6 +47,7 @@
       'INSERT': 45
     };
 
+
     function init(grid) {
       _grid = grid;
       _grid.onKeyDown.subscribe(handleKeyDown);
@@ -172,7 +173,7 @@
         destH = selectedRange.toRow - selectedRange.fromRow +1;
         destW = selectedRange.toCell - selectedRange.fromCell +1;
       }
-      var availableRows = _grid.getData().length - activeRow;
+      var availableRows = _grid.getData().getLength() - activeRow;
       var addRows = 0;
       if(availableRows < destH)
       {
