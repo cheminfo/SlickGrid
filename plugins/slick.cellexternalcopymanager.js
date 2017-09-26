@@ -179,8 +179,7 @@
       {
         var d = _grid.getData();
         for(addRows = 1; addRows <= destH - availableRows; addRows++)
-          d.push({});
-        _grid.setData(d);
+          d.addItem({});
         _grid.render();
       }
 
