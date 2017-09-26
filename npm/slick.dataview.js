@@ -1,4 +1,15 @@
 (function ($) {
+
+module.exports = {
+   DataView: DataView,
+   Aggregators: {
+     Avg: AvgAggregator,
+     Min: MinAggregator,
+     Max: MaxAggregator,
+     Sum: SumAggregator
+   }
+ };
+
   $.extend(true, window, {
     Slick: {
       Data: {
@@ -49,15 +60,13 @@
     var compiledFilterWithCaching;
     var filterCache = [];
 
-    var module = null;  // The visualizer model
-
     // grouping
     var groupingInfoDefaults = {
       getter: null,
       formatter: null,
       comparer: function(a, b) {
         return (a.value === b.value ? 0 :
-                (a.value > b.value ? 1 : -1)
+          (a.value > b.value ? 1 : -1)
         );
       },
       predefinedValues: [],
@@ -66,7 +75,8 @@
       aggregateCollapsed: false,
       aggregateChildGroups: false,
       collapsed: false,
-      displayTotalsRow: true
+      displayTotalsRow: true,
+      lazyTotalsCalculation: false
     };
     var groupingInfos = [];
     var groups = [];
@@ -84,9 +94,6 @@
 
     options = $.extend(true, {}, defaults, options);
 
-    function setModule(m) {
-      module = m;
-    }
 
     function beginUpdate() {
       suspend = true;
@@ -111,7 +118,7 @@
       for (var i = startingIndex, l = items.length; i < l; i++) {
         id = items[i][idProperty];
         if (id === undefined) {
-          throw new Error("Each data element must implement a unique 'id' property");
+          throw "Each data element must implement a unique 'id' property";
         }
         idxById[id] = i;
       }
@@ -122,13 +129,12 @@
       for (var i = 0, l = items.length; i < l; i++) {
         id = items[i][idProperty];
         if (id === undefined || idxById[id] !== i) {
-          throw new Error("Each data element must implement a unique 'id' property");
+          throw "Each data element must implement a unique 'id' property";
         }
       }
     }
 
-    function getItems(filtered) {
-      if(filtered && filteredItems) return filteredItems;
+    function getItems() {
       return items;
     }
 
@@ -163,39 +169,14 @@
       return {pageSize: pagesize, pageNum: pagenum, totalRows: totalRows, totalPages: totalPages, dataView: self};
     }
 
-    function sort(comparer, ascending, map) {
-      if(map) {
-        var d = new Array(items.length);
-        for(var i=0; i<items.length; i++) {
-          d[i] = [map(items[i]), items[i]];
-        }
-        timsort.sort(d, function(a,b) {
-          return comparer(a[0], b[0]);
-        });
-
-        for(var i=0; i<d.length; i++) {
-          items[i] = d[i][1];
-        }
-      } else {
-        timsort.sort(items, comparer);
-      }
-
-      if (ascending === false) {
-        items.reverse();
-      }
-      idxById = {};
-      updateIdxById();
-      refresh();
-    }
-
-    function sortBy(comparer, ascending) {
+    function sort(comparer, ascending) {
       sortAsc = ascending;
       sortComparer = comparer;
       fastSortField = null;
       if (ascending === false) {
         items.reverse();
       }
-      items = _.sortBy(items, comparer);
+      items.sort(comparer);
       if (ascending === false) {
         items.reverse();
       }
@@ -240,15 +221,6 @@
       }
     }
 
-    function getFilteredItems(){
-      return filteredItems;
-    }
-
-
-    function getFilter(){
-      return filter;
-    }
-    
     function setFilter(filterFn) {
       filter = filterFn;
       if (options.inlineFilters) {
@@ -270,7 +242,7 @@
       groups = [];
       toggledGroupsByLevel = [];
       groupingInfo = groupingInfo || [];
-      groupingInfos = Array.isArray(groupingInfo) ? groupingInfo : [groupingInfo];
+      groupingInfos = (groupingInfo instanceof Array) ? groupingInfo : [groupingInfo];
 
       for (var i = 0; i < groupingInfos.length; i++) {
         var gi = groupingInfos[i] = $.extend(true, {}, groupingInfoDefaults, groupingInfos[i]);
@@ -348,7 +320,7 @@
     function mapIdsToRows(idArray) {
       var rows = [];
       ensureRowsByIdCache();
-      for (var i = 0; i < idArray.length; i++) {
+      for (var i = 0, l = idArray.length; i < l; i++) {
         var row = rowsById[idArray[i]];
         if (row != null) {
           rows[rows.length] = row;
@@ -359,7 +331,7 @@
 
     function mapRowsToIds(rowArray) {
       var ids = [];
-      for (var i = 0; i < rowArray.length; i++) {
+      for (var i = 0, l = rowArray.length; i < l; i++) {
         if (rowArray[i] < rows.length) {
           ids[ids.length] = rows[rowArray[i]][idProperty];
         }
@@ -369,7 +341,7 @@
 
     function updateItem(id, item) {
       if (idxById[id] === undefined || id !== item[idProperty]) {
-        throw new Error("Invalid or non-matching id");
+        throw "Invalid or non-matching id";
       }
       items[idxById[id]] = item;
       if (!updated) {
@@ -394,7 +366,7 @@
     function deleteItem(id) {
       var idx = idxById[id];
       if (idx === undefined) {
-        throw new Error("Invalid id");
+        throw "Invalid id";
       }
       delete idxById[id];
       items.splice(idx, 1);
@@ -407,7 +379,22 @@
     }
 
     function getItem(i) {
-      return rows[i];
+      var item = rows[i];
+
+      // if this is a group row, make sure totals are calculated and update the title
+      if (item && item.__group && item.totals && !item.totals.initialized) {
+        var gi = groupingInfos[item.level];
+        if (!gi.displayTotalsRow) {
+          calculateTotals(item.totals);
+          item.title = gi.formatter ? gi.formatter(item) : item.value;
+        }
+      }
+      // if this is a totals row, make sure it's calculated
+      else if (item && item.__groupTotals && !item.initialized) {
+        calculateTotals(item);
+      }
+
+      return item;
     }
 
     function getItemMetadata(i) {
@@ -540,34 +527,57 @@
           group = groups[i];
           group.groups = extractGroups(group.rows, group);
         }
-      }
+      }      
 
       groups.sort(groupingInfos[level].comparer);
 
       return groups;
     }
 
-    // TODO:  lazy totals calculation
-    function calculateGroupTotals(group) {
-      // TODO:  try moving iterating over groups into compiled accumulator
+    function calculateTotals(totals) {
+      var group = totals.group;
       var gi = groupingInfos[group.level];
       var isLeafLevel = (group.level == groupingInfos.length);
-      var totals = new Slick.GroupTotals();
       var agg, idx = gi.aggregators.length;
+
+      if (!isLeafLevel && gi.aggregateChildGroups) {
+        // make sure all the subgroups are calculated
+        var i = group.groups.length;
+        while (i--) {
+          if (!group.groups[i].totals.initialized) {
+            calculateTotals(group.groups[i].totals);
+          }
+        }
+      }
+
       while (idx--) {
         agg = gi.aggregators[idx];
         agg.init();
-        gi.compiledAccumulators[idx].call(agg,
-            (!isLeafLevel && gi.aggregateChildGroups) ? group.groups : group.rows);
+        if (!isLeafLevel && gi.aggregateChildGroups) {
+          gi.compiledAccumulators[idx].call(agg, group.groups);
+        } else {
+          gi.compiledAccumulators[idx].call(agg, group.rows);
+        }
         agg.storeResult(totals);
       }
-      totals.group = group;
-      group.totals = totals;
+      totals.initialized = true;
     }
 
-    function calculateTotals(groups, level) {
+    function addGroupTotals(group) {
+      var gi = groupingInfos[group.level];
+      var totals = new Slick.GroupTotals();
+      totals.group = group;
+      group.totals = totals;
+      if (!gi.lazyTotalsCalculation) {
+        calculateTotals(totals);
+      }
+    }
+
+    function addTotals(groups, level) {
       level = level || 0;
       var gi = groupingInfos[level];
+      var groupCollapsed = gi.collapsed;
+      var toggledGroups = toggledGroupsByLevel[level];      
       var idx = groups.length, g;
       while (idx--) {
         g = groups[idx];
@@ -576,38 +586,20 @@
           continue;
         }
 
-        // Do a depth-first aggregation so that parent setGrouping aggregators can access subgroup totals.
+        // Do a depth-first aggregation so that parent group aggregators can access subgroup totals.
         if (g.groups) {
-          calculateTotals(g.groups, level + 1);
+          addTotals(g.groups, level + 1);
         }
 
         if (gi.aggregators.length && (
             gi.aggregateEmpty || g.rows.length || (g.groups && g.groups.length))) {
-          calculateGroupTotals(g);
+          addGroupTotals(g);
         }
-      }
-    }
 
-    function finalizeGroups(groups, level) {
-      level = level || 0;
-      var gi = groupingInfos[level];
-      var groupCollapsed = gi.collapsed;
-      var toggledGroups = toggledGroupsByLevel[level];
-      var idx = groups.length, g;
-      while (idx--) {
-        g = groups[idx];
         g.collapsed = groupCollapsed ^ toggledGroups[g.groupingKey];
         g.title = gi.formatter ? gi.formatter(g) : g.value;
-
-        if (g.groups) {
-          finalizeGroups(g.groups, level + 1);
-          // Let the non-leaf setGrouping rows get garbage-collected.
-          // They may have been used by aggregates that go over all of the descendants,
-          // but at this point they are no longer needed.
-          g.rows = [];
-        }
       }
-    }
+    } 
 
     function flattenGroupedRows(groups, level) {
       level = level || 0;
@@ -645,8 +637,8 @@
       var fn = new Function(
           "_items",
           "for (var " + accumulatorInfo.params[0] + ", _i=0, _il=_items.length; _i<_il; _i++) {" +
-          accumulatorInfo.params[0] + " = _items[_i]; " +
-          accumulatorInfo.body +
+              accumulatorInfo.params[0] + " = _items[_i]; " +
+              accumulatorInfo.body +
           "}"
       );
       fn.displayName = fn.name = "compiledAccumulatorLoop";
@@ -665,7 +657,7 @@
           .replace(/return true\s*([;}]|\}|$)/gi, filterPath2)
           .replace(/return!0([;}]|\}|$)/gi, filterPath2)
           .replace(/return ([^;}]+?)\s*([;}]|$)/gi,
-              "{ if ($1) { _retval[_idx++] = $item$; }; continue _coreloop; }$2");
+          "{ if ($1) { _retval[_idx++] = $item$; }; continue _coreloop; }$2");
 
       // This preserves the function template code after JS compression,
       // so that replace() commands still work as expected.
@@ -702,7 +694,7 @@
           .replace(/return true\s*([;}]|\}|$)/gi, filterPath2)
           .replace(/return!0([;}]|\}|$)/gi, filterPath2)
           .replace(/return ([^;}]+?)\s*([;}]|$)/gi,
-              "{ if ((_cache[_i] = $1)) { _retval[_idx++] = $item$; }; continue _coreloop; }$2");
+          "{ if ((_cache[_i] = $1)) { _retval[_idx++] = $item$; }; continue _coreloop; }$2");
 
       // This preserves the function template code after JS compression,
       // so that replace() commands still work as expected.
@@ -782,11 +774,11 @@
       var paged;
       if (pagesize) {
         if (filteredItems.length <= pagenum * pagesize) {
-          if (filteredItems.length === 0) {
-            pagenum = 0;
-          } else {
-            pagenum = Math.floor((filteredItems.length - 1) / pagesize);
-          }
+		  if (filteredItems.length === 0) {
+			pagenum = 0;
+		  } else {
+			pagenum = Math.floor((filteredItems.length - 1) / pagesize);
+		  }
         }
         paged = filteredItems.slice(pagesize * pagenum, pagesize * pagenum + pagesize);
       } else {
@@ -820,13 +812,13 @@
               item.__group !== r.__group ||
               item.__group && !item.equals(r))
               || (eitherIsNonData &&
-                // no good way to compare totals since they are arbitrary DTOs
-                // deep object comparison is pretty expensive
-                // always considering them 'dirty' seems easier for the time being
+              // no good way to compare totals since they are arbitrary DTOs
+              // deep object comparison is pretty expensive
+              // always considering them 'dirty' seems easier for the time being
               (item.__groupTotals || r.__groupTotals))
               || item[idProperty] != r[idProperty]
               || (updated && updated[item[idProperty]])
-          ) {
+              ) {
             diff[diff.length] = i;
           }
         }
@@ -850,8 +842,7 @@
       if (groupingInfos.length) {
         groups = extractGroups(newRows);
         if (groups.length) {
-          calculateTotals(groups);
-          finalizeGroups(groups);
+          addTotals(groups);
           newRows = flattenGroupedRows(groups);
         }
       }
@@ -895,17 +886,51 @@
       }
     }
 
-    function syncGridSelection(grid, preserveHidden) {
+    /***
+     * Wires the grid and the DataView together to keep row selection tied to item ids.
+     * This is useful since, without it, the grid only knows about rows, so if the items
+     * move around, the same rows stay selected instead of the selection moving along
+     * with the items.
+     *
+     * NOTE:  This doesn't work with cell selection model.
+     *
+     * @param grid {Slick.Grid} The grid to sync selection with.
+     * @param preserveHidden {Boolean} Whether to keep selected items that go out of the
+     *     view due to them getting filtered out.
+     * @param preserveHiddenOnSelectionChange {Boolean} Whether to keep selected items
+     *     that are currently out of the view (see preserveHidden) as selected when selection
+     *     changes.
+     * @return {Slick.Event} An event that notifies when an internal list of selected row ids
+     *     changes.  This is useful since, in combination with the above two options, it allows
+     *     access to the full list selected row ids, and not just the ones visible to the grid.
+     * @method syncGridSelection
+     */
+    function syncGridSelection(grid, preserveHidden, preserveHiddenOnSelectionChange) {
       var self = this;
-      var selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());;
       var inHandler;
+      var selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
+      var onSelectedRowIdsChanged = new Slick.Event();
+
+      function setSelectedRowIds(rowIds) {
+        if (selectedRowIds.join(",") == rowIds.join(",")) {
+          return;
+        }
+
+        selectedRowIds = rowIds;
+
+        onSelectedRowIdsChanged.notify({
+          "grid": grid,
+          "ids": selectedRowIds,
+          "dataView": self
+        }, new Slick.EventData(), self);
+      }
 
       function update() {
         if (selectedRowIds.length > 0) {
           inHandler = true;
           var selectedRows = self.mapIdsToRows(selectedRowIds);
           if (!preserveHidden) {
-            selectedRowIds = self.mapRowsToIds(selectedRows);
+            setSelectedRowIds(self.mapRowsToIds(selectedRows));       
           }
           grid.setSelectedRows(selectedRows);
           inHandler = false;
@@ -914,12 +939,22 @@
 
       grid.onSelectedRowsChanged.subscribe(function(e, args) {
         if (inHandler) { return; }
-        selectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
+        var newSelectedRowIds = self.mapRowsToIds(grid.getSelectedRows());
+        if (!preserveHiddenOnSelectionChange || !grid.getOptions().multiSelect) {
+          setSelectedRowIds(newSelectedRowIds);
+        } else {
+          // keep the ones that are hidden
+          var existing = $.grep(selectedRowIds, function(id) { return self.getRowById(id) === undefined; });
+          // add the newly selected ones
+          setSelectedRowIds(existing.concat(newSelectedRowIds));
+        }
       });
 
       this.onRowsChanged.subscribe(update);
 
       this.onRowCountChanged.subscribe(update);
+
+      return onSelectedRowIdsChanged;
     }
 
     function syncGridCellCssStyles(grid, key) {
@@ -969,7 +1004,6 @@
 
     $.extend(this, {
       // methods
-      "setModule": setModule,
       "beginUpdate": beginUpdate,
       "endUpdate": endUpdate,
       "setPagingOptions": setPagingOptions,
@@ -977,10 +1011,7 @@
       "getItems": getItems,
       "setItems": setItems,
       "setFilter": setFilter,
-      "getFilter": getFilter,
-      "getFilteredItems": getFilteredItems,
       "sort": sort,
-      "sortBy": sortBy,
       "fastSort": fastSort,
       "reSort": reSort,
       "setGrouping": setGrouping,
@@ -1120,750 +1151,5 @@
 
   // TODO:  add more built-in aggregators
   // TODO:  merge common aggregators in one to prevent needles iterating
-
-  /****
-   * The MIT License
-   *
-   * Copyright (c) 2015 Marco Ziccardi
-   *
-   * Permission is hereby granted, free of charge, to any person obtaining a copy
-   * of this software and associated documentation files (the "Software"), to deal
-   * in the Software without restriction, including without limitation the rights
-   * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   * copies of the Software, and to permit persons to whom the Software is
-   * furnished to do so, subject to the following conditions:
-   *
-   * The above copyright notice and this permission notice shall be included in
-   * all copies or substantial portions of the Software.
-   *
-   * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-   * THE SOFTWARE.
-   *
-   ****/
-
-  var timsort = {};
-  initTimsort(timsort);
-
-  function initTimsort(exports) {
-    'use strict';
-
-    exports.__esModule = true;
-    exports.sort = sort;
-
-    function _classCallCheck(instance, Constructor) {
-      if (!(instance instanceof Constructor)) {
-        throw new TypeError('Cannot call a class as a function');
-      }
-    }
-
-    var DEFAULT_MIN_MERGE = 32;
-
-    var DEFAULT_MIN_GALLOPING = 7;
-
-    var DEFAULT_TMP_STORAGE_LENGTH = 256;
-
-    function alphabeticalCompare(a, b) {
-      if (a === b) {
-        return 0;
-      } else {
-        var aStr = String(a);
-        var bStr = String(b);
-
-        if (aStr === bStr) {
-          return 0;
-        } else {
-          return aStr < bStr ? -1 : 1;
-        }
-      }
-    }
-
-    function minRunLength(n) {
-      var r = 0;
-
-      while (n >= DEFAULT_MIN_MERGE) {
-        r |= n & 1;
-        n >>= 1;
-      }
-
-      return n + r;
-    }
-
-    function makeAscendingRun(array, lo, hi, compare) {
-      var runHi = lo + 1;
-
-      if (runHi === hi) {
-        return 1;
-      }
-
-      if (compare(array[runHi++], array[lo]) < 0) {
-        while (runHi < hi && compare(array[runHi], array[runHi - 1]) < 0) {
-          runHi++;
-        }
-
-        reverseRun(array, lo, runHi);
-      } else {
-        while (runHi < hi && compare(array[runHi], array[runHi - 1]) >= 0) {
-          runHi++;
-        }
-      }
-
-      return runHi - lo;
-    }
-
-    function reverseRun(array, lo, hi) {
-      hi--;
-
-      while (lo < hi) {
-        var t = array[lo];
-        array[lo++] = array[hi];
-        array[hi--] = t;
-      }
-    }
-
-    function binaryInsertionSort(array, lo, hi, start, compare) {
-      if (start === lo) {
-        start++;
-      }
-
-      for (; start < hi; start++) {
-        var pivot = array[start];
-
-        var left = lo;
-        var right = start;
-
-        while (left < right) {
-          var mid = left + right >>> 1;
-
-          if (compare(pivot, array[mid]) < 0) {
-            right = mid;
-          } else {
-            left = mid + 1;
-          }
-        }
-
-        var n = start - left;
-
-        switch (n) {
-          case 3:
-            array[left + 3] = array[left + 2];
-
-          case 2:
-            array[left + 2] = array[left + 1];
-
-          case 1:
-            array[left + 1] = array[left];
-            break;
-          default:
-            while (n > 0) {
-              array[left + n] = array[left + n - 1];
-              n--;
-            }
-        }
-
-        array[left] = pivot;
-      }
-    }
-
-    function gallopLeft(value, array, start, length, hint, compare) {
-      var lastOffset = 0;
-      var maxOffset = 0;
-      var offset = 1;
-
-      if (compare(value, array[start + hint]) > 0) {
-        maxOffset = length - hint;
-
-        while (offset < maxOffset && compare(value, array[start + hint + offset]) > 0) {
-          lastOffset = offset;
-          offset = (offset << 1) + 1;
-
-          if (offset <= 0) {
-            offset = maxOffset;
-          }
-        }
-
-        if (offset > maxOffset) {
-          offset = maxOffset;
-        }
-
-        lastOffset += hint;
-        offset += hint;
-      } else {
-        maxOffset = hint + 1;
-        while (offset < maxOffset && compare(value, array[start + hint - offset]) <= 0) {
-          lastOffset = offset;
-          offset = (offset << 1) + 1;
-
-          if (offset <= 0) {
-            offset = maxOffset;
-          }
-        }
-        if (offset > maxOffset) {
-          offset = maxOffset;
-        }
-
-        var tmp = lastOffset;
-        lastOffset = hint - offset;
-        offset = hint - tmp;
-      }
-
-      lastOffset++;
-      while (lastOffset < offset) {
-        var m = lastOffset + (offset - lastOffset >>> 1);
-
-        if (compare(value, array[start + m]) > 0) {
-          lastOffset = m + 1;
-        } else {
-          offset = m;
-        }
-      }
-      return offset;
-    }
-
-    function gallopRight(value, array, start, length, hint, compare) {
-      var lastOffset = 0;
-      var maxOffset = 0;
-      var offset = 1;
-
-      if (compare(value, array[start + hint]) < 0) {
-        maxOffset = hint + 1;
-
-        while (offset < maxOffset && compare(value, array[start + hint - offset]) < 0) {
-          lastOffset = offset;
-          offset = (offset << 1) + 1;
-
-          if (offset <= 0) {
-            offset = maxOffset;
-          }
-        }
-
-        if (offset > maxOffset) {
-          offset = maxOffset;
-        }
-
-        var tmp = lastOffset;
-        lastOffset = hint - offset;
-        offset = hint - tmp;
-      } else {
-        maxOffset = length - hint;
-
-        while (offset < maxOffset && compare(value, array[start + hint + offset]) >= 0) {
-          lastOffset = offset;
-          offset = (offset << 1) + 1;
-
-          if (offset <= 0) {
-            offset = maxOffset;
-          }
-        }
-
-        if (offset > maxOffset) {
-          offset = maxOffset;
-        }
-
-        lastOffset += hint;
-        offset += hint;
-      }
-
-      lastOffset++;
-
-      while (lastOffset < offset) {
-        var m = lastOffset + (offset - lastOffset >>> 1);
-
-        if (compare(value, array[start + m]) < 0) {
-          offset = m;
-        } else {
-          lastOffset = m + 1;
-        }
-      }
-
-      return offset;
-    }
-
-    var TimSort = (function () {
-      function TimSort(array, compare) {
-        _classCallCheck(this, TimSort);
-
-        this.array = null;
-        this.compare = null;
-        this.minGallop = DEFAULT_MIN_GALLOPING;
-        this.length = 0;
-        this.tmpStorageLength = DEFAULT_TMP_STORAGE_LENGTH;
-        this.stackLength = 0;
-        this.runStart = null;
-        this.runLength = null;
-        this.stackSize = 0;
-
-        this.array = array;
-        this.compare = compare;
-
-        this.length = array.length;
-
-        if (this.length < 2 * DEFAULT_TMP_STORAGE_LENGTH) {
-          this.tmpStorageLength = this.length >>> 1;
-        }
-
-        this.tmp = new Array(this.tmpStorageLength);
-
-        this.stackLength = this.length < 120 ? 5 : this.length < 1542 ? 10 : this.length < 119151 ? 19 : 40;
-
-        this.runStart = new Array(this.stackLength);
-        this.runLength = new Array(this.stackLength);
-      }
-
-      TimSort.prototype.pushRun = function pushRun(runStart, runLength) {
-        this.runStart[this.stackSize] = runStart;
-        this.runLength[this.stackSize] = runLength;
-        this.stackSize += 1;
-      };
-
-      TimSort.prototype.mergeRuns = function mergeRuns() {
-        while (this.stackSize > 1) {
-          var n = this.stackSize - 2;
-
-          if (n >= 1 && this.runLength[n - 1] <= this.runLength[n] + this.runLength[n + 1] || n >= 2 && this.runLength[n - 2] <= this.runLength[n] + this.runLength[n - 1]) {
-
-            if (this.runLength[n - 1] < this.runLength[n + 1]) {
-              n--;
-            }
-          } else if (this.runLength[n] > this.runLength[n + 1]) {
-            break;
-          }
-          this.mergeAt(n);
-        }
-      };
-
-      TimSort.prototype.forceMergeRuns = function forceMergeRuns() {
-        while (this.stackSize > 1) {
-          var n = this.stackSize - 2;
-
-          if (n > 0 && this.runLength[n - 1] < this.runLength[n + 1]) {
-            n--;
-          }
-
-          this.mergeAt(n);
-        }
-      };
-
-      TimSort.prototype.mergeAt = function mergeAt(i) {
-        var compare = this.compare;
-        var array = this.array;
-
-        var start1 = this.runStart[i];
-        var length1 = this.runLength[i];
-        var start2 = this.runStart[i + 1];
-        var length2 = this.runLength[i + 1];
-
-        this.runLength[i] = length1 + length2;
-
-        if (i === this.stackSize - 3) {
-          this.runStart[i + 1] = this.runStart[i + 2];
-          this.runLength[i + 1] = this.runLength[i + 2];
-        }
-
-        this.stackSize--;
-
-        var k = gallopRight(array[start2], array, start1, length1, 0, compare);
-        start1 += k;
-        length1 -= k;
-
-        if (length1 === 0) {
-          return;
-        }
-
-        length2 = gallopLeft(array[start1 + length1 - 1], array, start2, length2, length2 - 1, compare);
-
-        if (length2 === 0) {
-          return;
-        }
-
-        if (length1 <= length2) {
-          this.mergeLow(start1, length1, start2, length2);
-        } else {
-          this.mergeHigh(start1, length1, start2, length2);
-        }
-      };
-
-      TimSort.prototype.mergeLow = function mergeLow(start1, length1, start2, length2) {
-
-        var compare = this.compare;
-        var array = this.array;
-        var tmp = this.tmp;
-        var i = 0;
-
-        for (i = 0; i < length1; i++) {
-          tmp[i] = array[start1 + i];
-        }
-
-        var cursor1 = 0;
-        var cursor2 = start2;
-        var dest = start1;
-
-        array[dest++] = array[cursor2++];
-
-        if (--length2 === 0) {
-          for (i = 0; i < length1; i++) {
-            array[dest + i] = tmp[cursor1 + i];
-          }
-          return;
-        }
-
-        if (length1 === 1) {
-          for (i = 0; i < length2; i++) {
-            array[dest + i] = array[cursor2 + i];
-          }
-          array[dest + length2] = tmp[cursor1];
-          return;
-        }
-
-        var minGallop = this.minGallop;
-
-        while (true) {
-          var count1 = 0;
-          var count2 = 0;
-          var exit = false;
-
-          do {
-            if (compare(array[cursor2], tmp[cursor1]) < 0) {
-              array[dest++] = array[cursor2++];
-              count2++;
-              count1 = 0;
-
-              if (--length2 === 0) {
-                exit = true;
-                break;
-              }
-            } else {
-              array[dest++] = tmp[cursor1++];
-              count1++;
-              count2 = 0;
-              if (--length1 === 1) {
-                exit = true;
-                break;
-              }
-            }
-          } while ((count1 | count2) < minGallop);
-
-          if (exit) {
-            break;
-          }
-
-          do {
-            count1 = gallopRight(array[cursor2], tmp, cursor1, length1, 0, compare);
-
-            if (count1 !== 0) {
-              for (i = 0; i < count1; i++) {
-                array[dest + i] = tmp[cursor1 + i];
-              }
-
-              dest += count1;
-              cursor1 += count1;
-              length1 -= count1;
-              if (length1 <= 1) {
-                exit = true;
-                break;
-              }
-            }
-
-            array[dest++] = array[cursor2++];
-
-            if (--length2 === 0) {
-              exit = true;
-              break;
-            }
-
-            count2 = gallopLeft(tmp[cursor1], array, cursor2, length2, 0, compare);
-
-            if (count2 !== 0) {
-              for (i = 0; i < count2; i++) {
-                array[dest + i] = array[cursor2 + i];
-              }
-
-              dest += count2;
-              cursor2 += count2;
-              length2 -= count2;
-
-              if (length2 === 0) {
-                exit = true;
-                break;
-              }
-            }
-            array[dest++] = tmp[cursor1++];
-
-            if (--length1 === 1) {
-              exit = true;
-              break;
-            }
-
-            minGallop--;
-          } while (count1 >= DEFAULT_MIN_GALLOPING || count2 >= DEFAULT_MIN_GALLOPING);
-
-          if (exit) {
-            break;
-          }
-
-          if (minGallop < 0) {
-            minGallop = 0;
-          }
-
-          minGallop += 2;
-        }
-
-        this.minGallop = minGallop;
-
-        if (minGallop < 1) {
-          this.minGallop = 1;
-        }
-
-        if (length1 === 1) {
-          for (i = 0; i < length2; i++) {
-            array[dest + i] = array[cursor2 + i];
-          }
-          array[dest + length2] = tmp[cursor1];
-        } else if (length1 === 0) {
-          throw new Error('mergeLow preconditions were not respected');
-        } else {
-          for (i = 0; i < length1; i++) {
-            array[dest + i] = tmp[cursor1 + i];
-          }
-        }
-      };
-
-      TimSort.prototype.mergeHigh = function mergeHigh(start1, length1, start2, length2) {
-        var compare = this.compare;
-        var array = this.array;
-        var tmp = this.tmp;
-        var i = 0;
-
-        for (i = 0; i < length2; i++) {
-          tmp[i] = array[start2 + i];
-        }
-
-        var cursor1 = start1 + length1 - 1;
-        var cursor2 = length2 - 1;
-        var dest = start2 + length2 - 1;
-        var customCursor = 0;
-        var customDest = 0;
-
-        array[dest--] = array[cursor1--];
-
-        if (--length1 === 0) {
-          customCursor = dest - (length2 - 1);
-
-          for (i = 0; i < length2; i++) {
-            array[customCursor + i] = tmp[i];
-          }
-
-          return;
-        }
-
-        if (length2 === 1) {
-          dest -= length1;
-          cursor1 -= length1;
-          customDest = dest + 1;
-          customCursor = cursor1 + 1;
-
-          for (i = length1 - 1; i >= 0; i--) {
-            array[customDest + i] = array[customCursor + i];
-          }
-
-          array[dest] = tmp[cursor2];
-          return;
-        }
-
-        var minGallop = this.minGallop;
-
-        while (true) {
-          var count1 = 0;
-          var count2 = 0;
-          var exit = false;
-
-          do {
-            if (compare(tmp[cursor2], array[cursor1]) < 0) {
-              array[dest--] = array[cursor1--];
-              count1++;
-              count2 = 0;
-              if (--length1 === 0) {
-                exit = true;
-                break;
-              }
-            } else {
-              array[dest--] = tmp[cursor2--];
-              count2++;
-              count1 = 0;
-              if (--length2 === 1) {
-                exit = true;
-                break;
-              }
-            }
-          } while ((count1 | count2) < minGallop);
-
-          if (exit) {
-            break;
-          }
-
-          do {
-            count1 = length1 - gallopRight(tmp[cursor2], array, start1, length1, length1 - 1, compare);
-
-            if (count1 !== 0) {
-              dest -= count1;
-              cursor1 -= count1;
-              length1 -= count1;
-              customDest = dest + 1;
-              customCursor = cursor1 + 1;
-
-              for (i = count1 - 1; i >= 0; i--) {
-                array[customDest + i] = array[customCursor + i];
-              }
-
-              if (length1 === 0) {
-                exit = true;
-                break;
-              }
-            }
-
-            array[dest--] = tmp[cursor2--];
-
-            if (--length2 === 1) {
-              exit = true;
-              break;
-            }
-
-            count2 = length2 - gallopLeft(array[cursor1], tmp, 0, length2, length2 - 1, compare);
-
-            if (count2 !== 0) {
-              dest -= count2;
-              cursor2 -= count2;
-              length2 -= count2;
-              customDest = dest + 1;
-              customCursor = cursor2 + 1;
-
-              for (i = 0; i < count2; i++) {
-                array[customDest + i] = tmp[customCursor + i];
-              }
-
-              if (length2 <= 1) {
-                exit = true;
-                break;
-              }
-            }
-
-            array[dest--] = array[cursor1--];
-
-            if (--length1 === 0) {
-              exit = true;
-              break;
-            }
-
-            minGallop--;
-          } while (count1 >= DEFAULT_MIN_GALLOPING || count2 >= DEFAULT_MIN_GALLOPING);
-
-          if (exit) {
-            break;
-          }
-
-          if (minGallop < 0) {
-            minGallop = 0;
-          }
-
-          minGallop += 2;
-        }
-
-        this.minGallop = minGallop;
-
-        if (minGallop < 1) {
-          this.minGallop = 1;
-        }
-
-        if (length2 === 1) {
-          dest -= length1;
-          cursor1 -= length1;
-          customDest = dest + 1;
-          customCursor = cursor1 + 1;
-
-          for (i = length1 - 1; i >= 0; i--) {
-            array[customDest + i] = array[customCursor + i];
-          }
-
-          array[dest] = tmp[cursor2];
-        } else if (length2 === 0) {
-          throw new Error('mergeHigh preconditions were not respected');
-        } else {
-          customCursor = dest - (length2 - 1);
-          for (i = 0; i < length2; i++) {
-            array[customCursor + i] = tmp[i];
-          }
-        }
-      };
-
-      return TimSort;
-    })();
-
-    function sort(array, compare, lo, hi) {
-      if (!Array.isArray(array)) {
-        throw new TypeError('Can only sort arrays');
-      }
-
-      if (!compare) {
-        compare = alphabeticalCompare;
-      } else if (typeof compare !== 'function') {
-        hi = lo;
-        lo = compare;
-        compare = alphabeticalCompare;
-      }
-
-      if (!lo) {
-        lo = 0;
-      }
-      if (!hi) {
-        hi = array.length;
-      }
-
-      var remaining = hi - lo;
-
-      if (remaining < 2) {
-        return;
-      }
-
-      var runLength = 0;
-
-      if (remaining < DEFAULT_MIN_MERGE) {
-        runLength = makeAscendingRun(array, lo, hi, compare);
-        binaryInsertionSort(array, lo, hi, lo + runLength, compare);
-        return;
-      }
-
-      var ts = new TimSort(array, compare);
-
-      var minRun = minRunLength(remaining);
-
-      do {
-        runLength = makeAscendingRun(array, lo, hi, compare);
-        if (runLength < minRun) {
-          var force = remaining;
-          if (force > minRun) {
-            force = minRun;
-          }
-
-          binaryInsertionSort(array, lo, lo + force, lo + runLength, compare);
-          runLength = force;
-        }
-
-        ts.pushRun(lo, runLength);
-        ts.mergeRuns();
-
-        remaining -= runLength;
-        lo += runLength;
-      } while (remaining !== 0);
-
-      ts.forceMergeRuns();
-    }
-  }
-
-
-
 
 })(jQuery);
