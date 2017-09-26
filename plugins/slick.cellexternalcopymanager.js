@@ -173,16 +173,16 @@
         destH = selectedRange.toRow - selectedRange.fromRow +1;
         destW = selectedRange.toCell - selectedRange.fromCell +1;
       }
-      var availableRows = _grid.getData().getLength() - activeRow;
+      // var availableRows = _grid.getData().getLength() - activeRow;
       var addRows = 0;
-      if(availableRows < destH)
-      {
-        var d = _grid.getData();
-        for(addRows = 1; addRows <= destH - availableRows; addRows++)
-          d.push({});
-        _grid.setData(d);
-        _grid.render();
-      }
+      // if(availableRows < destH)
+      // {
+      //   var d = _grid.getData();
+      //   for(addRows = 1; addRows <= destH - availableRows; addRows++)
+      //     d.push({});
+      //   _grid.setData(d);
+      //   _grid.render();
+      // }
 
       var overflowsBottomOfGrid = activeRow + destH > _grid.getDataLength();
 
