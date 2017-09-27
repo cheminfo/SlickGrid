@@ -429,7 +429,7 @@
       clearTimeout(_clearCopyTI);
       _clearCopyTI = setTimeout(function(){
         _self.clearCopySelection();
-      }, 2000);
+      }, 800);
     }
 
     function clearCopySelection() {
