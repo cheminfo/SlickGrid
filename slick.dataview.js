@@ -178,7 +178,7 @@
           items[i] = d[i][1];
         }
       } else {
-        stableSort.sort(items, comparer);
+        stableSort(items, comparer);
       }
 
       if (ascending === false) {
