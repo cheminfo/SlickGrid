@@ -60,7 +60,9 @@
       // we give focus on the grid when a selection is done on it.
       // without this, if the user selects a range of cell without giving focus on a particular cell, the grid doesn't get the focus and key stroke handles (ctrl+c) don't work
       cellSelectionModel.onSelectedRangesChanged.subscribe(function(e, args){
-        _grid.focus();
+	      if(!_options.noAutoFocus) {
+          _grid.focus();
+        }
       });
     }
 
